@@ -14,7 +14,7 @@
 #include <thread>
 #include <string>
 
-//#include "resnet101_v2.h"
+#include "resnet101_v2.h"
 
 #include <dlib/dnn.h>
 #include <dlib/data_io.h>
@@ -22,8 +22,9 @@
 #include <dlib/dir_nav.h>
 
 using namespace std;
-//using namespace dlib;
- 
+
+
+/* 
 // ----------------------------------------------------------------------------------------
 
 template <template <int,template<typename>class,int,typename> class block, int N, template<typename>class BN, typename SUBNET>
@@ -74,6 +75,8 @@ using resnet_type = dlib::loss_multiclass_log< dlib::fc<1000, dlib::avg_pool_eve
 //                            input_rgb_image_sized<227>
 //                            >>>>>>>>>>>;
 
+*/
+
 // ----------------------------------------------------------------------------------------
 
 dlib::rectangle make_random_cropping_rect_resnet(
@@ -103,7 +106,7 @@ void randomly_crop_image (
     auto rect = make_random_cropping_rect_resnet(img, rnd);
 
     // now crop it out as a 224x224 image.
-    dlib::extract_image_chip(img, dlib::chip_details(rect, dlib::chip_dims(224,224)), crop);
+    dlib::extract_image_chip(img, dlib::chip_details(rect, dlib::chip_dims(230,230)), crop);
 
     // Also randomly flip the image
     if (rnd.get_random_double() > 0.5)
@@ -124,7 +127,7 @@ void randomly_crop_images (
     for (long i = 0; i < num_crops; ++i)
     {
         auto rect = make_random_cropping_rect_resnet(img, rnd);
-        dets.push_back(dlib::chip_details(rect, dlib::chip_dims(224,224)));
+        dets.push_back(dlib::chip_details(rect, dlib::chip_dims(230,230)));
     }
 
     dlib::extract_image_chips(img, dets, crops);
@@ -209,7 +212,7 @@ int main(int argc, char** argv) try
 
     uint64_t num_crops = 200;
 
-    if (argc != 3)
+    if (argc < 3)
     {
         std::cout << "To run this program you need a copy of the imagenet ILSVRC2015 dataset and" << std::endl;
         std::cout << "also the file http://dlib.net/files/imagenet2015_validation_images.txt.bz2" << std::endl;
@@ -218,6 +221,8 @@ int main(int argc, char** argv) try
         std::cout << "./dnn_imagenet_train_ex /path/to/ILSVRC2015 imagenet2015_validation_images.txt" << std::endl;
         return 1;
     }
+
+    num_crops = std::stoi(argv[3]);
 
     std::cout << "\nSCANNING IMAGENET DATASET\n" << std::endl;
 
@@ -233,8 +238,8 @@ int main(int argc, char** argv) try
     dlib::set_dnn_prefer_smallest_algorithms();
 
 
-    const double initial_learning_rate = 0.1;
-    const double final_learning_rate = 0.001*initial_learning_rate;
+    const double initial_learning_rate = 0.0001;
+    const double final_learning_rate = 0.0001*initial_learning_rate;
     const double weight_decay = 0.0001;
     const double momentum = 0.9;
 
@@ -242,7 +247,7 @@ int main(int argc, char** argv) try
     dlib::dnn_trainer<resnet_type> trainer(net, dlib::sgd(weight_decay, momentum));
     trainer.be_verbose();
     trainer.set_learning_rate(initial_learning_rate);
-    trainer.set_synchronization_file("../nets/imagenet_trainer", std::chrono::minutes(10));
+    trainer.set_synchronization_file("../nets/imagenet_trainer2", std::chrono::minutes(10));
     
     // This threshold is probably excessively large.  You could likely get good results
     // with a smaller value but if you aren't in a hurry this value will surely work well.
@@ -251,6 +256,12 @@ int main(int argc, char** argv) try
     // Since the progress threshold is so large might as well set the batch normalization
     // stats window to something big too.
     dlib::set_all_bn_running_stats_window_sizes(net, 1000);
+
+
+
+    std::cout << "net:" << std::endl;
+    std::cout << net << std::endl;
+    std::cout << "--------------------------------------------------------------------------------" << std::endl;
 
     std::vector<dlib::matrix<dlib::rgb_pixel>> samples;
     std::vector<unsigned long> labels;
@@ -313,7 +324,7 @@ int main(int argc, char** argv) try
     std::cout << "saving network" << std::endl;
     dlib::serialize("resnet101.dnn") << net;
 
-/*
+
     // Now test the network on the imagenet validation dataset.  First, make a testing
     // network with softmax as the final layer.  We don't have to do this if we just wanted
     // to test the "top1 accuracy" since the normal network outputs the class prediction.
@@ -336,7 +347,7 @@ int main(int argc, char** argv) try
         dlib::load_image(img, l.filename);
         // Grab 16 random crops from the image.  We will run all of them through the
         // network and average the results.
-        const int num_crops = 16;
+        //const int num_crops = 16;
         randomly_crop_images(img, images, rnd, num_crops);
         // p(i) == the probability the image contains object of class i.
         dlib::matrix<float,1,1000> p = sum_rows(dlib::mat(snet(images.begin(), images.end())))/num_crops;
@@ -368,7 +379,7 @@ int main(int argc, char** argv) try
     std::cout << "val top5 accuracy:  " << num_right/(double)(num_right+num_wrong) << std::endl;
     std::cout << "val top1 accuracy:  " << num_right_top1/(double)(num_right_top1+num_wrong_top1) << std::endl;
 
-    */
+    
 }
 catch(std::exception& e)
 {
