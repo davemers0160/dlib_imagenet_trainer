@@ -10,14 +10,17 @@
 
 #include <cstdint>
 #include <iostream>
+#include <iomanip>
 #include <iterator>
 #include <thread>
 #include <string>
 
-#include "resnet101_v2.h"
+#include "file_parser.h"
+#include "resnet50_v2.h"
 
 #include <dlib/dnn.h>
 #include <dlib/data_io.h>
+#include <dlib/gui_widgets.h>
 #include <dlib/image_transforms.h>
 #include <dlib/dir_nav.h>
 
@@ -211,6 +214,11 @@ int main(int argc, char** argv) try
 {
 
     uint64_t num_crops = 200;
+    std::string version = "imagenet_res50_v2";
+    std::string sync_file = version + "_sync";
+    std::string net_name = version + ".dat";
+    
+    std::vector<std::vector<std::string>> map_clsloc;
 
     if (argc < 3)
     {
@@ -235,29 +243,38 @@ int main(int argc, char** argv) try
         return 1;
     }
         
+        
+    
+    parse_csv_file((string(argv[1]) + "/map_clsloc.csv"), map_clsloc);
+    
     dlib::set_dnn_prefer_smallest_algorithms();
 
 
-    const double initial_learning_rate = 0.0001;
+    const double initial_learning_rate = 0.01;
     const double final_learning_rate = 0.0001*initial_learning_rate;
     const double weight_decay = 0.0001;
     const double momentum = 0.9;
 
     resnet_type net;
-    dlib::dnn_trainer<resnet_type> trainer(net, dlib::sgd(weight_decay, momentum));
+    
+    //dlib::dnn_trainer<resnet_type> trainer(net, dlib::sgd(weight_decay, momentum));
+    dlib::dnn_trainer<resnet_type, dlib::adam> trainer(net, dlib::adam(0.0005, 0.9, 0.99), { 0 });
+       
     trainer.be_verbose();
     trainer.set_learning_rate(initial_learning_rate);
-    trainer.set_synchronization_file("../nets/imagenet_trainer2", std::chrono::minutes(10));
+    trainer.set_synchronization_file("../nets/" + sync_file, std::chrono::minutes(10));
     
     // This threshold is probably excessively large.  You could likely get good results
     // with a smaller value but if you aren't in a hurry this value will surely work well.
-    trainer.set_iterations_without_progress_threshold(20000);
+    trainer.set_iterations_without_progress_threshold(30000);
     
     // Since the progress threshold is so large might as well set the batch normalization
     // stats window to something big too.
     dlib::set_all_bn_running_stats_window_sizes(net, 1000);
 
-
+    std::cout << "trainer:" << std::endl;
+    std::cout << trainer << std::endl;
+    std::cout << "--------------------------------------------------------------------------------" << std::endl;   
 
     std::cout << "net:" << std::endl;
     std::cout << net << std::endl;
@@ -322,7 +339,7 @@ int main(int argc, char** argv) try
 
     net.clean();
     std::cout << "saving network" << std::endl;
-    dlib::serialize("resnet101.dnn") << net;
+    dlib::serialize("../nets/" + net_name) << net;
 
 
     // Now test the network on the imagenet validation dataset.  First, make a testing
@@ -330,27 +347,36 @@ int main(int argc, char** argv) try
     // to test the "top1 accuracy" since the normal network outputs the class prediction.
     // But this snet object will make getting the top5 predictions easy as it directly
     // outputs the probability of each class as its final output.
-    dlib::softmax<resnet_type::subnet_type> snet; 
+    dlib::softmax<aresnet_type::subnet_type> snet; 
     snet.subnet() = net.subnet();
 
     std::cout << "Testing network on imagenet validation dataset..." << std::endl;
+    std::cout << "--------------------------------------------------------------------------------" << std::endl;
+        
     int num_right = 0;
     int num_wrong = 0;
     int num_right_top1 = 0;
     int num_wrong_top1 = 0;
     dlib::rand rnd(time(0));
+    
+    dlib::image_window win;
+    
     // loop over all the imagenet validation images
     for (auto l : get_imagenet_val_listing(argv[1], argv[2]))
     {
         dlib::array<dlib::matrix<dlib::rgb_pixel>> images;
         dlib::matrix<dlib::rgb_pixel> img;
         dlib::load_image(img, l.filename);
+
+        win.set_image(img);
+        
         // Grab 16 random crops from the image.  We will run all of them through the
         // network and average the results.
-        //const int num_crops = 16;
-        randomly_crop_images(img, images, rnd, num_crops);
+        const int test_crops = 16;
+        randomly_crop_images(img, images, rnd, test_crops);
+        
         // p(i) == the probability the image contains object of class i.
-        dlib::matrix<float,1,1000> p = sum_rows(dlib::mat(snet(images.begin(), images.end())))/num_crops;
+        dlib::matrix<float,1,1000> p = sum_rows(dlib::mat(snet(images.begin(), images.end())))/test_crops;
 
         // check top 1 accuracy
         if (index_of_max(p) == l.numeric_label)
@@ -359,26 +385,42 @@ int main(int argc, char** argv) try
             ++num_wrong_top1;
 
         // check top 5 accuracy
+        std::cout << "Label: " << std::right << std::setw(3) << std::setfill('0') << l.numeric_label << " " << std::left << std::setw(32) << std::setfill(' ') << map_clsloc[l.numeric_label][3];
+        std::cout << std::endl;
+           
         bool found_match = false;
         for (int k = 0; k < 5; ++k)
         {
             long predicted_label = index_of_max(p);
+            std::cout << "Label: " << std::right << std::setw(3) << std::setfill('0') << predicted_label << " " << std::left << std::setw(32) << std::setfill(' ') << map_clsloc[predicted_label][3];
+            std::cout << " " << std::fixed << std::setprecision(4) << p(predicted_label) << std::endl;
+           
             p(predicted_label) = 0;
+            
             if (predicted_label == l.numeric_label)
             {
                 found_match = true;
-                break;
+                //break;
             }
-
         }
+        
+        std::cout << "--------------------------------------------------------------------------------" << std::endl;     
+           
         if (found_match)
             ++num_right;
         else
             ++num_wrong;
+            
+        //std::cout << "Hit enter to process the next image";
+        //std::cin.get();     
+
     }
+    
+    std::cout << std::endl;
+    std::cout << "--------------------------------------------------------------------------------" << std::endl;
     std::cout << "val top5 accuracy:  " << num_right/(double)(num_right+num_wrong) << std::endl;
     std::cout << "val top1 accuracy:  " << num_right_top1/(double)(num_right_top1+num_wrong_top1) << std::endl;
-
+    std::cout << "--------------------------------------------------------------------------------" << std::endl;
     
 }
 catch(std::exception& e)
