@@ -11,7 +11,8 @@
 # windows: cmake --build . --config Release
 # linux: cmake --build . --config Release -- -j10
 #
-
+# To run:
+# linux: ./img_train /home/owner/ILSVRC2015 /home/owner/ILSVRC2015/imagenet2015_validation_images.txt 31
 
 cmake_minimum_required(VERSION 2.8.12)
 

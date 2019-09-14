@@ -15,8 +15,9 @@
 #include <thread>
 #include <string>
 
+#include "get_current_time.h"
 #include "file_parser.h"
-#include "resnet50_v2.h"
+#include "resnet50_v1.h"
 
 #include <dlib/dnn.h>
 #include <dlib/data_io.h>
@@ -26,59 +27,6 @@
 
 using namespace std;
 
-
-/* 
-// ----------------------------------------------------------------------------------------
-
-template <template <int,template<typename>class,int,typename> class block, int N, template<typename>class BN, typename SUBNET>
-using residual = dlib::add_prev1<block<N,BN,1, dlib::tag1<SUBNET>>>;
-
-template <template <int,template<typename>class,int,typename> class block, int N, template<typename>class BN, typename SUBNET>
-using residual_down = dlib::add_prev2<dlib::avg_pool<2,2,2,2, dlib::skip1<dlib::tag2<block<N,BN,2, dlib::tag1<SUBNET>>>>>>;
-
-template <int N, template <typename> class BN, int stride, typename SUBNET> 
-using block  = BN<dlib::con<N,3,3,1,1, dlib::relu<BN<dlib::con<N,3,3,stride,stride,SUBNET>>>>>;
-
-
-template <int N, typename SUBNET> using res       = dlib::relu<residual<block,N, dlib::bn_con,SUBNET>>;
-template <int N, typename SUBNET> using ares      = dlib::relu<residual<block,N, dlib::affine,SUBNET>>;
-template <int N, typename SUBNET> using res_down  = dlib::relu<residual_down<block,N, dlib::bn_con,SUBNET>>;
-template <int N, typename SUBNET> using ares_down = dlib::relu<residual_down<block,N, dlib::affine,SUBNET>>;
-
-
-// ----------------------------------------------------------------------------------------
-
-template <typename SUBNET> using level1 = res<512,res<512,res_down<512,SUBNET>>>;
-template <typename SUBNET> using level2 = res<256,res<256,res<256,res<256,res<256,res_down<256,SUBNET>>>>>>;
-template <typename SUBNET> using level3 = res<128,res<128,res<128,res_down<128,SUBNET>>>>;
-template <typename SUBNET> using level4 = res<64,res<64,res<64,SUBNET>>>;
-
-template <typename SUBNET> using alevel1 = ares<512,ares<512,ares_down<512,SUBNET>>>;
-template <typename SUBNET> using alevel2 = ares<256,ares<256,ares<256,ares<256,ares<256,ares_down<256,SUBNET>>>>>>;
-template <typename SUBNET> using alevel3 = ares<128,ares<128,ares<128,ares_down<128,SUBNET>>>>;
-template <typename SUBNET> using alevel4 = ares<64,ares<64,ares<64,SUBNET>>>;
-
-// training network type
-using resnet_type = dlib::loss_multiclass_log< dlib::fc<1000, dlib::avg_pool_everything<
-                            level1<
-                            level2<
-                            level3<
-                            level4<
-                            dlib::max_pool<3,3,2,2, dlib::relu<dlib::bn_con<dlib::con<64,7,7,2,2,
-                            dlib::input_rgb_image_sized<224>
-                            >>>>>>>>>>>;
-
-//// testing network type (replaced batch normalization with fixed affine transforms)
-//using anet_type = loss_multiclass_log<fc<1000,avg_pool_everything<
-//                            alevel1<
-//                            alevel2<
-//                            alevel3<
-//                            alevel4<
-//                            max_pool<3,3,2,2,relu<affine<con<64,7,7,2,2,
-//                            input_rgb_image_sized<227>
-//                            >>>>>>>>>>>;
-
-*/
 
 // ----------------------------------------------------------------------------------------
 
@@ -214,9 +162,13 @@ int main(int argc, char** argv) try
 {
 
     uint64_t num_crops = 200;
-    std::string version = "imagenet_res50_v2";
+    std::string version = "imagenet_res50v1_v3";
     std::string sync_file = version + "_sync";
     std::string net_name = version + ".dat";
+    std::string sdate, stime;
+
+    std::ofstream DataLogStream;
+    
     
     std::vector<std::vector<std::string>> map_clsloc;
 
@@ -243,14 +195,24 @@ int main(int argc, char** argv) try
         return 1;
     }
         
-        
+    get_current_time(sdate, stime);
+    std::string logfileName = "log_" + version + "_" + sdate + "_" + stime + ".txt";
+    std::string output_save_location = "../results/";
+    
+    std::cout << "Log File:             " << (output_save_location + logfileName) << std::endl << std::endl;
+    DataLogStream.open((output_save_location + logfileName), ios::out);
+    
+    // Add the date and time to the start of the log file
+    DataLogStream << "--------------------------------------------------------------------------------" << std::endl;
+    DataLogStream << "Version: 2.0    Date: " << sdate << "    Time: " << stime << std::endl;
+    DataLogStream << "--------------------------------------------------------------------------------" << std::endl;        
     
     parse_csv_file((string(argv[1]) + "/map_clsloc.csv"), map_clsloc);
     
     dlib::set_dnn_prefer_smallest_algorithms();
 
 
-    const double initial_learning_rate = 0.01;
+    const double initial_learning_rate = 0.00001;
     const double final_learning_rate = 0.0001*initial_learning_rate;
     const double weight_decay = 0.0001;
     const double momentum = 0.9;
@@ -266,7 +228,7 @@ int main(int argc, char** argv) try
     
     // This threshold is probably excessively large.  You could likely get good results
     // with a smaller value but if you aren't in a hurry this value will surely work well.
-    trainer.set_iterations_without_progress_threshold(30000);
+    trainer.set_iterations_without_progress_threshold(17500);
     
     // Since the progress threshold is so large might as well set the batch normalization
     // stats window to something big too.
@@ -275,7 +237,9 @@ int main(int argc, char** argv) try
     std::cout << "trainer:" << std::endl;
     std::cout << trainer << std::endl;
     std::cout << "--------------------------------------------------------------------------------" << std::endl;   
-
+    DataLogStream << trainer << std::endl;
+    DataLogStream << "--------------------------------------------------------------------------------" << std::endl;
+        
     std::cout << "net:" << std::endl;
     std::cout << net << std::endl;
     std::cout << "--------------------------------------------------------------------------------" << std::endl;
@@ -305,6 +269,10 @@ int main(int argc, char** argv) try
     std::thread data_loader2([f](){ f(2); });
     std::thread data_loader3([f](){ f(3); });
     std::thread data_loader4([f](){ f(4); });
+    
+
+    
+    uint64_t test_step_count = 5000;
 
     // The main training loop.  Keep making mini-batches and giving them to the trainer.
     // We will run until the learning rate has dropped by a factor of 1e-3.
@@ -324,6 +292,17 @@ int main(int argc, char** argv) try
         }
 
         trainer.train_one_step(samples, labels);
+        
+        
+        uint64_t one_step_calls = trainer.get_train_one_step_calls();
+            
+        if((one_step_calls % test_step_count) == 0)
+        {
+            DataLogStream << std::setw(6) << std::setfill('0') << one_step_calls << ", ";
+            DataLogStream << std::fixed << std::setprecision(10) << trainer.get_learning_rate() << ", ";
+            DataLogStream << std::fixed << std::setprecision(5) << trainer.get_average_loss() << ", ";
+            DataLogStream << trainer.get_steps_without_progress() << std::endl;  
+        }
     }
 
     // Training done, tell threads to stop and make sure to wait for them to finish before
@@ -340,6 +319,10 @@ int main(int argc, char** argv) try
     net.clean();
     std::cout << "saving network" << std::endl;
     dlib::serialize("../nets/" + net_name) << net;
+    
+    DataLogStream << "--------------------------------------------------------------------------------" << std::endl;      
+    DataLogStream << "Final Average Loss: " << trainer.get_average_loss() << std::endl;
+    DataLogStream << "--------------------------------------------------------------------------------" << std::endl << std::endl;  
 
 
     // Now test the network on the imagenet validation dataset.  First, make a testing
@@ -418,10 +401,15 @@ int main(int argc, char** argv) try
     
     std::cout << std::endl;
     std::cout << "--------------------------------------------------------------------------------" << std::endl;
-    std::cout << "val top5 accuracy:  " << num_right/(double)(num_right+num_wrong) << std::endl;
     std::cout << "val top1 accuracy:  " << num_right_top1/(double)(num_right_top1+num_wrong_top1) << std::endl;
+    std::cout << "val top5 accuracy:  " << num_right/(double)(num_right+num_wrong) << std::endl;
     std::cout << "--------------------------------------------------------------------------------" << std::endl;
     
+    DataLogStream << "--------------------------------------------------------------------------------" << std::endl;
+    DataLogStream << "val top1 accuracy:  " << num_right_top1/(double)(num_right_top1+num_wrong_top1) << std::endl;
+    DataLogStream << "val top5 accuracy:  " << num_right/(double)(num_right+num_wrong) << std::endl;
+    DataLogStream << "--------------------------------------------------------------------------------" << std::endl;   
+     
 }
 catch(std::exception& e)
 {
