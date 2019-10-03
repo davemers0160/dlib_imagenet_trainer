@@ -162,7 +162,7 @@ int main(int argc, char** argv) try
 {
 
     uint64_t num_crops = 200;
-    std::string version = "imagenet_res50v1_v3";
+    std::string version = "imagenet_res50v1_v4";
     std::string sync_file = version + "_sync";
     std::string net_name = version + ".dat";
     std::string sdate, stime;
@@ -228,7 +228,7 @@ int main(int argc, char** argv) try
     
     // This threshold is probably excessively large.  You could likely get good results
     // with a smaller value but if you aren't in a hurry this value will surely work well.
-    trainer.set_iterations_without_progress_threshold(17500);
+    trainer.set_iterations_without_progress_threshold(40000);
     
     // Since the progress threshold is so large might as well set the batch normalization
     // stats window to something big too.
